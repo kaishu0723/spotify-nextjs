@@ -1,103 +1,272 @@
-import Image from "next/image";
+'use client';
+
+import { useEffect, useState } from 'react';
+
+interface Track {
+  id: string;
+  name: string;
+  artists: { name: string }[];
+  album: {
+    name: string;
+    images: { url: string }[];
+  };
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Track[]>([]);
+  const [searching, setSearching] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  useEffect(() => {
+    // ローカルストレージからトークンを取得
+    const token = localStorage.getItem('spotify_access_token');
+    if (token) {
+      setAccessToken(token);
+    }
+  }, []);
+
+  const handleLogin = () => {
+    window.location.href = '/api/auth/login';
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('spotify_access_token');
+    setAccessToken(null);
+    setMessage('');
+    setSearchResults([]);
+    setSearchQuery('');
+  };
+
+  const searchTracks = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!accessToken || !searchQuery.trim()) {
+      return;
+    }
+
+    setSearching(true);
+    setMessage('');
+
+    try {
+      const response = await fetch(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=10`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('検索に失敗しました');
+      }
+
+      const data = await response.json();
+      setSearchResults(data.tracks.items);
+    } catch (error) {
+      setMessage(`エラー: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const addTrackToPlaylist = async (trackId: string, trackName: string) => {
+    if (!accessToken) {
+      setMessage('ログインが必要です');
+      return;
+    }
+
+    const playlistId = process.env.NEXT_PUBLIC_PLAYLIST_ID;
+    if (!playlistId) {
+      setMessage('プレイリストIDが設定されていません');
+      return;
+    }
+
+    setLoading(true);
+    setMessage('');
+
+    try {
+      const response = await fetch(
+        `https://api.spotify.com/v1/playlists/${playlistId}/tracks`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            uris: [`spotify:track:${trackId}`],
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('曲の追加に失敗しました');
+      }
+
+      setMessage(`「${trackName}」をプレイリストに追加しました！`);
+      // inputを空にして検索結果をクリア
+      setSearchQuery('');
+      setSearchResults([]);
+    } catch (error) {
+      setMessage(`エラー: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
+      <h1>Spotify プレイリスト管理</h1>
+      
+      {!accessToken ? (
+        <button 
+          onClick={handleLogin} 
+          style={{ 
+            padding: '0.75rem 1.5rem', 
+            cursor: 'pointer',
+            fontSize: '1rem',
+            backgroundColor: '#1DB954',
+            color: 'white',
+            border: 'none',
+            borderRadius: '25px',
+          }}
+        >
+          Spotifyでログイン
+        </button>
+      ) : (
+        <div>
+          <div style={{ marginBottom: '2rem' }}>
+            <p style={{ color: '#1DB954' }}>✓ ログイン済み</p>
+            <button 
+              onClick={handleLogout}
+              style={{ 
+                padding: '0.5rem 1rem', 
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                backgroundColor: '#f0f0f0',
+                border: '1px solid #ccc',
+                borderRadius: '5px',
+              }}
+            >
+              ログアウト
+            </button>
+          </div>
+
+          <div style={{ marginBottom: '2rem' }}>
+            <h2>曲を検索して追加</h2>
+            <form onSubmit={searchTracks} style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="曲名を入力..."
+                style={{
+                  flex: 1,
+                  padding: '0.75rem',
+                  fontSize: '1rem',
+                  border: '2px solid #ddd',
+                  borderRadius: '5px',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={searching || !searchQuery.trim()}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  cursor: searching ? 'not-allowed' : 'pointer',
+                  fontSize: '1rem',
+                  backgroundColor: '#1DB954',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '5px',
+                  opacity: searching || !searchQuery.trim() ? 0.5 : 1,
+                }}
+              >
+                {searching ? '検索中...' : '検索'}
+              </button>
+            </form>
+          </div>
+
+          {searchResults.length > 0 && (
+            <div>
+              <h3>検索結果</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {searchResults.map((track) => (
+                  <div
+                    key={track.id}
+                    style={{
+                      display: 'flex',
+                      gap: '1rem',
+                      padding: '1rem',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      alignItems: 'center',
+                      backgroundColor: '#f9f9f9',
+                    }}
+                  >
+                    {track.album.images[0] && (
+                      <img
+                        src={track.album.images[0].url}
+                        alt={track.album.name}
+                        style={{
+                          width: '80px',
+                          height: '80px',
+                          borderRadius: '4px',
+                        }}
+                      />
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <h4 style={{ margin: '0 0 0.5rem 0' }}>{track.name}</h4>
+                      <p style={{ margin: '0.25rem 0', color: '#666' }}>
+                        アーティスト: {track.artists.map(a => a.name).join(', ')}
+                      </p>
+                      <p style={{ margin: '0.25rem 0', color: '#666' }}>
+                        アルバム: {track.album.name}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => addTrackToPlaylist(track.id, track.name)}
+                      disabled={loading}
+                      style={{
+                        padding: '0.75rem 1.5rem',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        fontSize: '1rem',
+                        backgroundColor: '#1DB954',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '5px',
+                        opacity: loading ? 0.5 : 1,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {message && (
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '1rem',
+                backgroundColor: message.includes('エラー') ? '#ffebee' : '#e8f5e9',
+                border: `1px solid ${message.includes('エラー') ? '#ffcdd2' : '#c8e6c9'}`,
+                borderRadius: '5px',
+                color: message.includes('エラー') ? '#c62828' : '#2e7d32',
+              }}
+            >
+              {message}
+            </div>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
     </div>
   );
 }
