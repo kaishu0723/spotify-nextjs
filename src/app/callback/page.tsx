@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-export default function Callback() {
+function CallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [error, setError] = useState('');
@@ -44,3 +44,14 @@ export default function Callback() {
     </div>
   );
 }
+
+export default function Callback() {
+  return (
+    <Suspense fallback={<div style={{ padding: '2rem' }}>読み込み中...</div>}>
+      <CallbackContent />
+    </Suspense>
+  );
+}
+
+// 動的レンダリングを強制
+export const dynamic = 'force-dynamic';
